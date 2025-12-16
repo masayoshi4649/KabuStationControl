@@ -1,0 +1,8 @@
+/*
+起動パネル用の補助スタイルです。
+Tailwind をベースにしつつ、ローディング状態を視認しやすくします。
+*/
+
+#boot-panel.is-loading {
+  cursor: progress;
+}

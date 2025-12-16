@@ -10,6 +10,11 @@ type Config struct {
 	System struct {
 		Apipw string `toml:"APIPW"`
 	} `toml:"SYSTEM"`
+
+	Path struct {
+		KabuStationExe string `toml:"KABUSTATION_EXE"`
+		TradeWebAppURL string `toml:"TRADEWEBAPP_URL"`
+	} `toml:"PATH"`
 }
 
 func loadConfig(path string) (Config, error) {
