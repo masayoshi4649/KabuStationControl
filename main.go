@@ -1,10 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
-	"log"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,20 +21,19 @@ var cfg Config
 func main() {
 	// -c もしくは --config で指定可能に
 	var confPath string
-	flag.StringVar(&confPath, "c", "auth.toml", "path to config file")
-	flag.StringVar(&confPath, "config", "auth.toml", "path to config file (alias)")
+	flag.StringVar(&confPath, "c", "auth.toml", "設定ファイルのパス")
+	flag.StringVar(&confPath, "config", "auth.toml", "設定ファイルのパス（別名）")
 	flag.Parse()
 
 	var err error
 	cfg, err = loadConfig(confPath)
 	if err != nil {
-		log.Printf("failed to load config (%s): %v\n", confPath, err)
-		log.Println("Enterキーを押してください...")
-		_, _ = bufio.NewReader(os.Stdin).ReadString('\n') // 改行が来るまでブロック
 		os.Exit(1)
 	}
 
-	rt := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
+	rt := gin.New()
+	rt.Use(gin.RecoveryWithWriter(io.Discard))
 
 	rt.LoadHTMLGlob("view/*.html")
 	rt.Static("/static", "./view")
@@ -44,7 +42,9 @@ func main() {
 	rt.GET("/bootauthkabus", handleBootAuthKabusGET)
 	rt.GET("/bootapp", handleBootAppGET)
 
-	rt.Run(httpListenAddr)
+	if err := rt.Run(httpListenAddr); err != nil {
+		os.Exit(1)
+	}
 }
 
 // ----------------------------------------
@@ -91,7 +91,7 @@ func handleBootAuthKabusGET(c *gin.Context) {
 		time.Sleep(10 * time.Second)
 	}
 
-	out, runErr := runPowerShellFile(
+	runErr := runPowerShellFile(
 		filepath.Join("cmd", "Click-KabuStationLogin.ps1"),
 		"-ExePath", exePath,
 		"-TimeoutSeconds", "60",
@@ -101,7 +101,17 @@ func handleBootAuthKabusGET(c *gin.Context) {
 			"ok":      false,
 			"message": "KabuStation 起動認証（ログイン操作）の実行に失敗しました",
 			"error":   runErr.Error(),
-			"output":  out,
+			"started": started,
+		})
+		return
+	}
+
+	apikey := auth()
+	if apikey == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"ok":      false,
+			"message": "KabuStation API認証（ログイン操作）の実行に失敗しました",
+			"error":   "Please check config",
 			"started": started,
 		})
 		return
@@ -110,7 +120,6 @@ func handleBootAuthKabusGET(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
 		"message": "KabuStation 起動認証（ログイン操作）を実行しました",
-		"output":  out,
 		"started": started,
 	})
 }
@@ -120,7 +129,7 @@ func handleBootAuthKabusGET(c *gin.Context) {
 // handleBootAppGET は、TradeWebApp の起動要求を処理します。
 //
 // 機能:
-//   - 認証後に起動
+//   - 設定ファイルの TRADEAPP.PATH を実行します。
 //
 // 引数およびその型:
 //   - c (*gin.Context): Gin のコンテキストです。
@@ -129,7 +138,18 @@ func handleBootAuthKabusGET(c *gin.Context) {
 //   - なし（HTTP レスポンスとして JSON を返します）
 func handleBootAppGET(c *gin.Context) {
 
-	c.JSON(http.StatusOK, gin.H{})
+	exePath, exeArgs, err := resolveTradeAppExePath()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": err.Error()})
+		return
+	}
+
+	if err := exec.Command(exePath, exeArgs...).Start(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "TradeWebApp の起動に失敗しました", "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "TradeWebApp を起動しました"})
 }
 
 // ----------------------------------------
@@ -181,40 +201,61 @@ func isKabuStationRunning() (bool, error) {
 
 // ----------------------------------------
 
+// resolveTradeAppExePath は、TradeWebApp の実行ファイルパスと引数を解決します。
+//
+// 機能:
+//   - 設定ファイル（TRADEAPP.PATH）を参照し、実行ファイルの存在を確認します。
+//   - 設定ファイル（TRADEAPP.CONF）が指定されている場合は、`-c <CONF>` を引数に付与します。
+//
+// 引数およびその型:
+//   - なし
+//
+// 返り値およびその型:
+//   - (string): 実行ファイルパスです。
+//   - ([]string): 実行時引数です。
+//   - (error): 見つからない場合や不正な場合のエラーです。
+func resolveTradeAppExePath() (string, []string, error) {
+	exePath := strings.TrimSpace(cfg.TradeApp.Path)
+	if exePath == "" {
+		return "", nil, errors.New("TradeWebApp の実行ファイルパスが空です。設定ファイルの TRADEAPP.PATH を設定してください。")
+	}
+
+	if _, err := os.Stat(exePath); err != nil {
+		return "", nil, errors.New("TradeWebApp の実行ファイルが見つかりません。設定ファイルの TRADEAPP.PATH を確認してください。")
+	}
+
+	confPath := strings.TrimSpace(cfg.TradeApp.Conf)
+	if confPath == "" {
+		return exePath, nil, nil
+	}
+
+	if _, err := os.Stat(confPath); err != nil {
+		return "", nil, errors.New("TradeWebApp の設定ファイルが見つかりません。設定ファイルの TRADEAPP.CONF を確認してください。")
+	}
+
+	return exePath, []string{"-c", confPath}, nil
+}
+
 // ----------------------------------------
 
-// runPowerShellFile は、PowerShell スクリプトを実行し、標準出力と標準エラーをまとめて返します。
+// runPowerShellFile は、PowerShell スクリプトを実行します。
 //
 // 機能:
 //   - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script> ...` を実行します。
+//   - 標準出力と標準エラーは破棄します。
 //
 // 引数およびその型:
 //   - scriptPath (string): スクリプトパスです。
 //   - args (...string): スクリプトへ渡す引数です。
 //
 // 返り値およびその型:
-//   - (string): 標準出力と標準エラーを連結した文字列です。
 //   - (error): 実行に失敗した場合のエラーです。
-func runPowerShellFile(scriptPath string, args ...string) (string, error) {
+func runPowerShellFile(scriptPath string, args ...string) error {
 	commandArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath}
 	commandArgs = append(commandArgs, args...)
 
-	out, err := exec.Command("powershell.exe", commandArgs...).CombinedOutput()
-	return strings.TrimSpace(string(out)), err
-}
-
-// ----------------------------------------
-
-// openURL は、既定ブラウザで指定 URL を開きます。
-//
-// 機能:
-//   - Windows の `rundll32 url.dll,FileProtocolHandler` を用いて URL を開きます。
-//
-// 引数およびその型:
-//   - url (string): 開く URL です。
-//
-// 返り値およびその型:
-//   - (error): 失敗した場合のエラーです。
-func openURL(url string) error {
-	return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url).Start()
+	cmd := exec.Command("powershell.exe", commandArgs...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
 }
