@@ -120,7 +120,7 @@ func handleBootAuthKabusGET(c *gin.Context) {
 // handleBootAppGET は、TradeWebApp の起動要求を処理します。
 //
 // 機能:
-//   - 既定の URL もしくは設定済み URL を既定ブラウザで開きます。
+//   - 認証後に起動
 //
 // 引数およびその型:
 //   - c (*gin.Context): Gin のコンテキストです。
@@ -128,18 +128,8 @@ func handleBootAuthKabusGET(c *gin.Context) {
 // 返り値およびその型:
 //   - なし（HTTP レスポンスとして JSON を返します）
 func handleBootAppGET(c *gin.Context) {
-	url := resolveTradeWebAppURL()
-	if strings.TrimSpace(url) == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "TradeWebApp の URL が空です"})
-		return
-	}
 
-	if err := openURL(url); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "TradeWebApp の起動（URL を開く）に失敗しました", "error": err.Error(), "url": url})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "TradeWebApp を起動しました（URL を開きました）", "url": url})
+	c.JSON(http.StatusOK, gin.H{})
 }
 
 // ----------------------------------------
@@ -147,7 +137,7 @@ func handleBootAppGET(c *gin.Context) {
 // resolveKabuStationExePath は、KabuStation の実行ファイルパスを解決します。
 //
 // 機能:
-//   - 設定ファイル（PATH.KABUSTATION_EXE）→環境変数（KABUSTATION_EXE）→既定パスの順に探索します。
+//   - 設定ファイル（KABUS.PATH）のみを参照し、実行ファイルの存在を確認します。
 //
 // 引数およびその型:
 //   - なし
@@ -156,26 +146,16 @@ func handleBootAppGET(c *gin.Context) {
 //   - (string): 実行ファイルパスです。
 //   - (error): 見つからない場合や不正な場合のエラーです。
 func resolveKabuStationExePath() (string, error) {
-	candidates := []string{
-		strings.TrimSpace(cfg.Path.KabuStationExe),
-		strings.TrimSpace(os.Getenv("KABUSTATION_EXE")),
+	exePath := strings.TrimSpace(cfg.Kabus.Path)
+	if exePath == "" {
+		return "", errors.New("KabuStation の実行ファイルパスが空です。設定ファイルの KABUS.PATH を設定してください。")
 	}
 
-	localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
-	if localAppData != "" {
-		candidates = append(candidates, filepath.Join(localAppData, "kabuStation", "KabuS.exe"))
+	if _, err := os.Stat(exePath); err != nil {
+		return "", errors.New("KabuStation の実行ファイルが見つかりません。設定ファイルの KABUS.PATH を確認してください。")
 	}
 
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-
-	return "", errors.New("KabuStation の実行ファイルが見つかりません。設定ファイルの PATH.KABUSTATION_EXE もしくは環境変数 KABUSTATION_EXE を設定してください。")
+	return exePath, nil
 }
 
 // ----------------------------------------
@@ -200,30 +180,6 @@ func isKabuStationRunning() (bool, error) {
 }
 
 // ----------------------------------------
-
-// resolveTradeWebAppURL は、TradeWebApp の URL を解決します。
-//
-// 機能:
-//   - 設定ファイル（PATH.TRADEWEBAPP_URL）→環境変数（TRADEWEBAPP_URL）→既定 URL の順に解決します。
-//
-// 引数およびその型:
-//   - なし
-//
-// 返り値およびその型:
-//   - (string): TradeWebApp の URL です。
-func resolveTradeWebAppURL() string {
-	candidate := strings.TrimSpace(cfg.Path.TradeWebAppURL)
-	if candidate != "" {
-		return candidate
-	}
-
-	candidate = strings.TrimSpace(os.Getenv("TRADEWEBAPP_URL"))
-	if candidate != "" {
-		return candidate
-	}
-
-	return "http://localhost:5173/"
-}
 
 // ----------------------------------------
 
