@@ -3,12 +3,14 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +19,9 @@ import (
 const httpListenAddr = ":3000"
 
 var cfg Config
+
+var apiKey string
+var apiKeyMu sync.RWMutex
 
 func main() {
 	// -c もしくは --config で指定可能に
@@ -31,15 +36,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	gin.SetMode(gin.ReleaseMode)
-	rt := gin.New()
-	rt.Use(gin.RecoveryWithWriter(io.Discard))
-
+	rt := gin.Default()
 	rt.LoadHTMLGlob("view/*.html")
 	rt.Static("/static", "./view")
-
 	rt.GET("/", handleIndexGET)
 	rt.GET("/bootauthkabus", handleBootAuthKabusGET)
+	rt.GET("/apiauth", handleAPIAuthGET)
 	rt.GET("/bootapp", handleBootAppGET)
 
 	if err := rt.Run(httpListenAddr); err != nil {
@@ -106,17 +108,6 @@ func handleBootAuthKabusGET(c *gin.Context) {
 		return
 	}
 
-	apikey := auth()
-	if apikey == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"ok":      false,
-			"message": "KabuStation API認証（ログイン操作）の実行に失敗しました",
-			"error":   "Please check config",
-			"started": started,
-		})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
 		"message": "KabuStation 起動認証（ログイン操作）を実行しました",
@@ -126,10 +117,33 @@ func handleBootAuthKabusGET(c *gin.Context) {
 
 // ----------------------------------------
 
+// handleAPIAuthGET は、KabuStation の API 認証要求を処理します。
+//
+// 機能:
+//   - KabuStation の API トークンを取得し、サーバ内へ保持します。
+//
+// 引数およびその型:
+//   - c (*gin.Context): Gin のコンテキストです。
+//
+// 返り値およびその型:
+//   - なし（HTTP レスポンスとして JSON を返します）
+func handleAPIAuthGET(c *gin.Context) {
+	apikey := apitoken()
+	if strings.TrimSpace(apikey) == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "API 認証に失敗しました"})
+		return
+	}
+
+	setAPIKey(apikey)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "API 認証が完了しました"})
+}
+
+// ----------------------------------------
+
 // handleBootAppGET は、TradeWebApp の起動要求を処理します。
 //
 // 機能:
-//   - 設定ファイルの TRADEAPP.PATH を実行します。
+//   - `TRADEAPP.PATH -c TRADEAPP.CONF -k <APIKEY>` で起動します。
 //
 // 引数およびその型:
 //   - c (*gin.Context): Gin のコンテキストです。
@@ -138,18 +152,38 @@ func handleBootAuthKabusGET(c *gin.Context) {
 //   - なし（HTTP レスポンスとして JSON を返します）
 func handleBootAppGET(c *gin.Context) {
 
-	exePath, exeArgs, err := resolveTradeAppExePath()
+	apikey := getAPIKey()
+	if strings.TrimSpace(apikey) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "message": "API認証を先に実行してください"})
+		return
+	}
+
+	exePath, exeArgs, err := resolveTradeAppExeArgs(apikey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": err.Error()})
 		return
 	}
 
-	if err := exec.Command(exePath, exeArgs...).Start(); err != nil {
+	cmd := exec.Command(exePath, exeArgs...)
+	cmd.Dir = filepath.Dir(exePath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "TradeWebApp の起動に失敗しました", "error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "TradeWebApp を起動しました"})
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Release()
+
+	time.Sleep(500 * time.Millisecond)
+	if !isProcessAliveByPID(pid) {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "TradeWebApp が起動直後に終了しました", "pid": pid})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "TradeWebApp を起動しました", "pid": pid})
 }
 
 // ----------------------------------------
@@ -201,20 +235,58 @@ func isKabuStationRunning() (bool, error) {
 
 // ----------------------------------------
 
-// resolveTradeAppExePath は、TradeWebApp の実行ファイルパスと引数を解決します。
+// setAPIKey は、API トークンをサーバ内へ保持します。
 //
 // 機能:
-//   - 設定ファイル（TRADEAPP.PATH）を参照し、実行ファイルの存在を確認します。
-//   - 設定ファイル（TRADEAPP.CONF）が指定されている場合は、`-c <CONF>` を引数に付与します。
+//   - 取得したトークンをグローバルへ設定します。
+//
+// 引数およびその型:
+//   - key (string): API トークンです。
+//
+// 返り値およびその型:
+//   - なし
+func setAPIKey(key string) {
+	apiKeyMu.Lock()
+	defer apiKeyMu.Unlock()
+
+	apiKey = key
+}
+
+// ----------------------------------------
+
+// getAPIKey は、保持済みの API トークンを取得します。
+//
+// 機能:
+//   - サーバ内へ保持した API トークンを返します。
 //
 // 引数およびその型:
 //   - なし
 //
 // 返り値およびその型:
+//   - (string): API トークンです（未設定の場合は空文字です）。
+func getAPIKey() string {
+	apiKeyMu.RLock()
+	defer apiKeyMu.RUnlock()
+
+	return apiKey
+}
+
+// ----------------------------------------
+
+// resolveTradeAppExeArgs は、TradeWebApp の実行ファイルパスと引数を解決します。
+//
+// 機能:
+//   - 設定ファイル（TRADEAPP.PATH）を参照し、実行ファイルの存在を確認します。
+//   - `-c <CONF> -k <APIKEY>` を引数に付与します。
+//
+// 引数およびその型:
+//   - apikey (string): API トークンです。
+//
+// 返り値およびその型:
 //   - (string): 実行ファイルパスです。
 //   - ([]string): 実行時引数です。
 //   - (error): 見つからない場合や不正な場合のエラーです。
-func resolveTradeAppExePath() (string, []string, error) {
+func resolveTradeAppExeArgs(apikey string) (string, []string, error) {
 	exePath := strings.TrimSpace(cfg.TradeApp.Path)
 	if exePath == "" {
 		return "", nil, errors.New("TradeWebApp の実行ファイルパスが空です。設定ファイルの TRADEAPP.PATH を設定してください。")
@@ -226,14 +298,38 @@ func resolveTradeAppExePath() (string, []string, error) {
 
 	confPath := strings.TrimSpace(cfg.TradeApp.Conf)
 	if confPath == "" {
-		return exePath, nil, nil
+		return "", nil, errors.New("TradeWebApp の設定ファイルパスが空です。設定ファイルの TRADEAPP.CONF を設定してください。")
 	}
 
 	if _, err := os.Stat(confPath); err != nil {
 		return "", nil, errors.New("TradeWebApp の設定ファイルが見つかりません。設定ファイルの TRADEAPP.CONF を確認してください。")
 	}
 
-	return exePath, []string{"-c", confPath}, nil
+	if strings.TrimSpace(apikey) == "" {
+		return "", nil, errors.New("API トークンが空です。API認証を先に実行してください。")
+	}
+
+	return exePath, []string{"-c", confPath, "-k", apikey}, nil
+}
+
+// ----------------------------------------
+
+// isProcessAliveByPID は、指定 PID のプロセスが起動中かどうかを判定します。
+//
+// 機能:
+//   - Windows の tasklist を用いて PID の存在を確認します。
+//
+// 引数およびその型:
+//   - pid (int): 判定対象の PID です。
+//
+// 返り値およびその型:
+//   - (bool): 起動している場合は true です。
+func isProcessAliveByPID(pid int) bool {
+	out, err := exec.Command("tasklist.exe", "/FI", fmt.Sprintf("PID eq %d", pid)).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), fmt.Sprintf(" %d ", pid))
 }
 
 // ----------------------------------------

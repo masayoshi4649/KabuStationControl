@@ -1,7 +1,7 @@
 /**
  * 起動パネルの画面初期化を行う関数。
  *
- * 2 つのボタンにクリックイベントを設定し、axios で API を呼び出します。
+ * 3 つのボタンにクリックイベントを設定し、axios で API を呼び出します。
  * 実行結果は通知（iziToast）で表示します。
  *
  * @function initializeBootPanel
@@ -10,11 +10,13 @@
  */
 function initializeBootPanel() {
   const bootPanel = document.getElementById("boot-panel");
+  const requestStatus = document.getElementById("request-status");
 
   const bootAuthKabusButton = document.getElementById("btn-bootauthkabus");
+  const apiAuthButton = document.getElementById("btn-apiauth");
   const bootAppButton = document.getElementById("btn-bootapp");
 
-  if (!bootPanel || !bootAuthKabusButton || !bootAppButton) {
+  if (!bootPanel || !bootAuthKabusButton || !apiAuthButton || !bootAppButton) {
     return;
   }
 
@@ -28,9 +30,24 @@ function initializeBootPanel() {
     event.stopPropagation();
     await runAction({
       panelElement: bootPanel,
-      buttons: [bootAuthKabusButton, bootAppButton],
+      statusElement: requestStatus,
+      buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
+      clickedButton: bootAuthKabusButton,
       actionLabel: "KabuStation 起動認証",
       path: "/bootauthkabus",
+    });
+  });
+
+  apiAuthButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await runAction({
+      panelElement: bootPanel,
+      statusElement: requestStatus,
+      buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
+      clickedButton: apiAuthButton,
+      actionLabel: "API認証",
+      path: "/apiauth",
     });
   });
 
@@ -39,7 +56,9 @@ function initializeBootPanel() {
     event.stopPropagation();
     await runAction({
       panelElement: bootPanel,
-      buttons: [bootAuthKabusButton, bootAppButton],
+      statusElement: requestStatus,
+      buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
+      clickedButton: bootAppButton,
       actionLabel: "TradeWebApp 起動",
       path: "/bootapp",
     });
@@ -57,17 +76,32 @@ function initializeBootPanel() {
  * @function runAction
  * @param {Object} params - 実行に必要なパラメータ群です。
  * @param {HTMLElement} params.panelElement - ローディング状態を付与する要素です。
+ * @param {HTMLElement|null} params.statusElement - 状態表示要素です（未配置の場合は null です）。
  * @param {HTMLButtonElement[]} params.buttons - 有効/無効を切り替えるボタン配列です。
+ * @param {HTMLButtonElement} params.clickedButton - 押下されたボタンです。
  * @param {string} params.actionLabel - 画面表示用のアクション名です。
  * @param {string} params.path - 呼び出す API パスです。
  * @returns {Promise<void>} 返り値はありません。
  */
-async function runAction({ panelElement, buttons, actionLabel, path }) {
+async function runAction({ panelElement, statusElement, buttons, clickedButton, actionLabel, path }) {
   if (panelElement.classList.contains("is-loading")) {
+    iziToast.info({
+      title: "実行中",
+      message: "処理中のため、完了後に実行してください。",
+      position: "topRight",
+    });
     return;
   }
 
+  const originalText = beginButtonLoading(clickedButton);
   setLoadingState(panelElement, buttons, true);
+  setRequestStatus(statusElement, "loading", `送信中: GET ${path}`);
+  iziToast.info({
+    title: "送信",
+    message: `GET ${path} を送信しました。`,
+    position: "topRight",
+    timeout: 1200,
+  });
 
   try {
     const response = await axios.get(path, { timeout: 120000 });
@@ -79,6 +113,7 @@ async function runAction({ panelElement, buttons, actionLabel, path }) {
         message: data.message || `${actionLabel} が完了しました。`,
         position: "topRight",
       });
+      setRequestStatus(statusElement, "success", `完了: ${actionLabel}`);
       return;
     }
 
@@ -87,6 +122,7 @@ async function runAction({ panelElement, buttons, actionLabel, path }) {
       message: data.message || `${actionLabel} に失敗しました。`,
       position: "topRight",
     });
+    setRequestStatus(statusElement, "error", `失敗: ${actionLabel}`);
   } catch (error) {
     const detail = normalizeAxiosError(error);
     const message =
@@ -97,9 +133,61 @@ async function runAction({ panelElement, buttons, actionLabel, path }) {
       message,
       position: "topRight",
     });
+    setRequestStatus(statusElement, "error", `通信エラー: ${actionLabel}`);
   } finally {
     setLoadingState(panelElement, buttons, false);
+    endButtonLoading(clickedButton, originalText);
   }
+}
+
+// ----------------------------------------
+
+/**
+ * 状態表示を更新する関数。
+ *
+ * @function setRequestStatus
+ * @param {HTMLElement|null} statusElement - 状態表示要素です。
+ * @param {"idle"|"loading"|"success"|"error"} status - 状態です。
+ * @param {string} message - 表示メッセージです。
+ * @returns {void} 返り値はありません。
+ */
+function setRequestStatus(statusElement, status, message) {
+  if (!statusElement) {
+    return;
+  }
+
+  statusElement.textContent = message;
+  statusElement.dataset.status = status;
+}
+
+// ----------------------------------------
+
+/**
+ * ボタンをローディング表示へ切り替える関数。
+ *
+ * @function beginButtonLoading
+ * @param {HTMLButtonElement} button - 対象ボタンです。
+ * @returns {string} 返り値は元のボタン表示テキストです。
+ */
+function beginButtonLoading(button) {
+  const originalText = button.textContent || "";
+  button.dataset.originalText = originalText;
+  button.textContent = `送信中... ${originalText.trim()}`.trim();
+  return originalText;
+}
+
+// ----------------------------------------
+
+/**
+ * ボタンのローディング表示を解除する関数。
+ *
+ * @function endButtonLoading
+ * @param {HTMLButtonElement} button - 対象ボタンです。
+ * @param {string} originalText - 元のボタン表示テキストです。
+ * @returns {void} 返り値はありません。
+ */
+function endButtonLoading(button, originalText) {
+  button.textContent = originalText || button.dataset.originalText || "";
 }
 
 // ----------------------------------------
@@ -116,8 +204,10 @@ async function runAction({ panelElement, buttons, actionLabel, path }) {
 function setLoadingState(panelElement, buttons, isLoading) {
   if (isLoading) {
     panelElement.classList.add("is-loading");
+    panelElement.setAttribute("aria-busy", "true");
   } else {
     panelElement.classList.remove("is-loading");
+    panelElement.removeAttribute("aria-busy");
   }
 
   buttons.forEach((button) => {

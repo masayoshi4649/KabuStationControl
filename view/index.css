@@ -6,3 +6,27 @@ Tailwind をベースにしつつ、ローディング状態を視認しやす�
 #boot-panel.is-loading {
   cursor: progress;
 }
+
+#request-status[data-status="idle"] {
+  border-color: #1f2937;
+  background: rgba(2, 6, 23, 0.6);
+  color: #cbd5e1;
+}
+
+#request-status[data-status="loading"] {
+  border-color: rgba(14, 116, 144, 0.6);
+  background: rgba(8, 47, 73, 0.25);
+  color: #7dd3fc;
+}
+
+#request-status[data-status="success"] {
+  border-color: rgba(4, 120, 87, 0.6);
+  background: rgba(6, 78, 59, 0.25);
+  color: #6ee7b7;
+}
+
+#request-status[data-status="error"] {
+  border-color: rgba(190, 18, 60, 0.6);
+  background: rgba(76, 5, 25, 0.25);
+  color: #fda4af;
+}
