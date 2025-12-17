@@ -28,18 +28,12 @@
     #btn-bootapp は TradeWebApp 起動をトリガーするボタンです。
     クリック時に GET /bootapp を axios で呼び出します。
 
-    #request-status は現在の状態を 1 行で表示する要素です。
-    送信中・完了・失敗を表示します。
     -->
 
     <main id="boot-panel" class="mx-auto max-w-2xl p-6">
         <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-black/20">
             <h1 class="text-xl font-semibold text-slate-100">起動パネル</h1>
             <p class="mt-2 text-sm text-slate-300">ボタンを押すとサーバへ GET リクエストを送信します。</p>
-            <div id="request-status" data-status="idle"
-                class="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
-                待機中です。
-            </div>
 
             <div class="mt-6">
                 <h2 class="text-sm font-semibold text-slate-100">操作</h2>

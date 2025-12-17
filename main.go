@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -81,12 +83,28 @@ func handleBootAuthKabusGET(c *gin.Context) {
 	}
 
 	started := false
+	pid := 0
+	var pids []int
 	if !wasRunning {
-		if err := exec.Command(exePath).Start(); err != nil {
+		cmd := exec.Command(exePath)
+		cmd.Dir = filepath.Dir(exePath)
+		if err := cmd.Start(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "KabuStation の起動に失敗しました", "error": err.Error()})
 			return
 		}
+		pid = cmd.Process.Pid
+		_ = cmd.Process.Release()
 		started = true
+	} else {
+		foundPIDs, pidErr := getProcessPIDsByImageName("KabuS.exe")
+		if pidErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "KabuStation の PID 取得に失敗しました", "error": pidErr.Error()})
+			return
+		}
+		pids = foundPIDs
+		if len(pids) > 0 {
+			pid = pids[0]
+		}
 	}
 
 	if started {
@@ -104,6 +122,8 @@ func handleBootAuthKabusGET(c *gin.Context) {
 			"message": "KabuStation 起動認証（ログイン操作）の実行に失敗しました",
 			"error":   runErr.Error(),
 			"started": started,
+			"pid":     pid,
+			"pids":    pids,
 		})
 		return
 	}
@@ -112,6 +132,8 @@ func handleBootAuthKabusGET(c *gin.Context) {
 		"ok":      true,
 		"message": "KabuStation 起動認証（ログイン操作）を実行しました",
 		"started": started,
+		"pid":     pid,
+		"pids":    pids,
 	})
 }
 
@@ -210,6 +232,68 @@ func resolveKabuStationExePath() (string, error) {
 	}
 
 	return exePath, nil
+}
+
+// ----------------------------------------
+
+// getProcessPIDsByImageName は、指定した実行ファイル名に一致する PID 一覧を取得します。
+//
+// 機能:
+//   - Windows の tasklist を用いて、対象プロセスの PID を列挙します。
+//
+// 引数およびその型:
+//   - imageName (string): 例）KabuS.exe のようなプロセス名です。
+//
+// 返り値およびその型:
+//   - ([]int): 取得した PID の一覧です（見つからない場合は空配列です）。
+//   - (error): 取得や解析に失敗した場合のエラーです。
+func getProcessPIDsByImageName(imageName string) ([]int, error) {
+	query := strings.TrimSpace(imageName)
+	if query == "" {
+		return nil, errors.New("プロセス名が空です")
+	}
+
+	out, err := exec.Command("tasklist.exe", "/FI", fmt.Sprintf("IMAGENAME eq %s", query), "/FO", "CSV", "/NH").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return []int{}, nil
+	}
+	if strings.HasPrefix(text, "INFO:") {
+		return []int{}, nil
+	}
+
+	reader := csv.NewReader(strings.NewReader(text))
+	reader.FieldsPerRecord = -1
+
+	var pids []int
+	for {
+		record, readErr := reader.Read()
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(record) < 2 {
+			continue
+		}
+
+		if !strings.EqualFold(strings.TrimSpace(record[0]), query) {
+			continue
+		}
+
+		pid, convErr := strconv.Atoi(strings.TrimSpace(record[1]))
+		if convErr != nil {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+
+	return pids, nil
 }
 
 // ----------------------------------------

@@ -10,7 +10,6 @@
  */
 function initializeBootPanel() {
   const bootPanel = document.getElementById("boot-panel");
-  const requestStatus = document.getElementById("request-status");
 
   const bootAuthKabusButton = document.getElementById("btn-bootauthkabus");
   const apiAuthButton = document.getElementById("btn-apiauth");
@@ -30,7 +29,6 @@ function initializeBootPanel() {
     event.stopPropagation();
     await runAction({
       panelElement: bootPanel,
-      statusElement: requestStatus,
       buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
       clickedButton: bootAuthKabusButton,
       actionLabel: "KabuStation 起動認証",
@@ -43,7 +41,6 @@ function initializeBootPanel() {
     event.stopPropagation();
     await runAction({
       panelElement: bootPanel,
-      statusElement: requestStatus,
       buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
       clickedButton: apiAuthButton,
       actionLabel: "API認証",
@@ -56,7 +53,6 @@ function initializeBootPanel() {
     event.stopPropagation();
     await runAction({
       panelElement: bootPanel,
-      statusElement: requestStatus,
       buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
       clickedButton: bootAppButton,
       actionLabel: "TradeWebApp 起動",
@@ -76,14 +72,13 @@ function initializeBootPanel() {
  * @function runAction
  * @param {Object} params - 実行に必要なパラメータ群です。
  * @param {HTMLElement} params.panelElement - ローディング状態を付与する要素です。
- * @param {HTMLElement|null} params.statusElement - 状態表示要素です（未配置の場合は null です）。
  * @param {HTMLButtonElement[]} params.buttons - 有効/無効を切り替えるボタン配列です。
  * @param {HTMLButtonElement} params.clickedButton - 押下されたボタンです。
  * @param {string} params.actionLabel - 画面表示用のアクション名です。
  * @param {string} params.path - 呼び出す API パスです。
  * @returns {Promise<void>} 返り値はありません。
  */
-async function runAction({ panelElement, statusElement, buttons, clickedButton, actionLabel, path }) {
+async function runAction({ panelElement, buttons, clickedButton, actionLabel, path }) {
   if (panelElement.classList.contains("is-loading")) {
     iziToast.info({
       title: "実行中",
@@ -95,7 +90,6 @@ async function runAction({ panelElement, statusElement, buttons, clickedButton, 
 
   const originalText = beginButtonLoading(clickedButton);
   setLoadingState(panelElement, buttons, true);
-  setRequestStatus(statusElement, "loading", `送信中: GET ${path}`);
   iziToast.info({
     title: "送信",
     message: `GET ${path} を送信しました。`,
@@ -108,32 +102,32 @@ async function runAction({ panelElement, statusElement, buttons, clickedButton, 
     const data = response?.data ?? {};
 
     if (data.ok) {
+      const message = appendPIDToMessage(data.message || `${actionLabel} が完了しました。`, data);
       iziToast.success({
         title: "成功",
-        message: data.message || `${actionLabel} が完了しました。`,
+        message,
         position: "topRight",
       });
-      setRequestStatus(statusElement, "success", `完了: ${actionLabel}`);
       return;
     }
 
+    const message = appendPIDToMessage(data.message || `${actionLabel} に失敗しました。`, data);
     iziToast.error({
       title: "失敗",
-      message: data.message || `${actionLabel} に失敗しました。`,
+      message,
       position: "topRight",
     });
-    setRequestStatus(statusElement, "error", `失敗: ${actionLabel}`);
   } catch (error) {
     const detail = normalizeAxiosError(error);
-    const message =
+    const baseMessage =
       detail.data?.message || detail.data?.error || detail.message || `${actionLabel} のリクエスト中にエラーが発生しました。`;
+    const message = appendPIDToMessage(baseMessage, detail.data);
 
     iziToast.error({
       title: "通信エラー",
       message,
       position: "topRight",
     });
-    setRequestStatus(statusElement, "error", `通信エラー: ${actionLabel}`);
   } finally {
     setLoadingState(panelElement, buttons, false);
     endButtonLoading(clickedButton, originalText);
@@ -143,21 +137,41 @@ async function runAction({ panelElement, statusElement, buttons, clickedButton, 
 // ----------------------------------------
 
 /**
- * 状態表示を更新する関数。
+ * PID 情報をメッセージへ付与する関数。
  *
- * @function setRequestStatus
- * @param {HTMLElement|null} statusElement - 状態表示要素です。
- * @param {"idle"|"loading"|"success"|"error"} status - 状態です。
- * @param {string} message - 表示メッセージです。
- * @returns {void} 返り値はありません。
+ * API レスポンスの `pid` と `pids` を見て、存在する場合に `(PID: 1234)` の形式で付与します。
+ *
+ * @function appendPIDToMessage
+ * @param {string} baseMessage - 元となるメッセージです。
+ * @param {Object|undefined|null} data - API レスポンスの data オブジェクトです。
+ * @returns {string} 返り値は PID 情報を付与したメッセージです。
  */
-function setRequestStatus(statusElement, status, message) {
-  if (!statusElement) {
-    return;
+function appendPIDToMessage(baseMessage, data) {
+  const safeMessage = baseMessage || "";
+  const source = data || {};
+  const pidList = [];
+
+  if (Number.isFinite(source.pid) && source.pid > 0) {
+    pidList.push(source.pid);
   }
 
-  statusElement.textContent = message;
-  statusElement.dataset.status = status;
+  if (Array.isArray(source.pids)) {
+    source.pids.forEach((pid) => {
+      if (!Number.isFinite(pid) || pid <= 0) {
+        return;
+      }
+      if (pidList.includes(pid)) {
+        return;
+      }
+      pidList.push(pid);
+    });
+  }
+
+  if (pidList.length === 0) {
+    return safeMessage;
+  }
+
+  return `${safeMessage} (PID: ${pidList.join(", ")})`;
 }
 
 // ----------------------------------------
