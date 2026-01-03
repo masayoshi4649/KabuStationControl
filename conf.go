@@ -9,6 +9,7 @@ import (
 type Config struct {
 	System struct {
 		Apipw string `toml:"APIPW"`
+		Debug bool   `toml:"DEBUG"`
 	} `toml:"SYSTEM"`
 
 	Kabus struct {

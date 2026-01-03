@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -154,6 +155,10 @@ func handleAPIAuthGET(c *gin.Context) {
 	if strings.TrimSpace(apikey) == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "message": "API 認証に失敗しました"})
 		return
+	}
+
+	if cfg.System.Debug {
+		log.Println(apikey) // DEBUG
 	}
 
 	setAPIKey(apikey)

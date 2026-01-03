@@ -1,6 +1,7 @@
 [SYSTEM]
 # KabuStation の API パスワード
 APIPW = "password"
+DEBUG = false
 
 [KABUS]
 # KabuStation の実行ファイルパス
