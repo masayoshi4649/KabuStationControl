@@ -52,6 +52,8 @@ func main() {
 	rt.GET("/apiauth", handleAPIAuthGET)
 	rt.GET("/bootapp", handleBootAppGET)
 	rt.GET("/pid", handlePIDGET)
+	rt.GET("/killkabus", handleKillKabusGET)
+	rt.GET("/killapp", handleKillAppGET)
 
 	if err := rt.Run(httpListenAddr); err != nil {
 		os.Exit(1)
@@ -81,6 +83,82 @@ func handlePIDGET(c *gin.Context) {
 		"ok":          true,
 		"pidKabus":    pidKabus,
 		"pidTradeApp": pidTradeApp,
+	})
+}
+
+// ----------------------------------------
+
+// handleKillKabusGET は、KabuS の強制終了を処理します。
+//
+// 機能:
+//   - グローバル変数 pidKabus を参照して KabuS を強制終了します。
+//   - 終了成功時に pidKabus を 0 にします。
+//
+// 引数およびその型:
+//   - c (*gin.Context): Gin のコンテキストです。
+//
+// 返り値およびその型:
+//   - なし（HTTP レスポンスとして JSON を返します）
+func handleKillKabusGET(c *gin.Context) {
+	pid := pidKabus
+	if pid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "message": "KabuS の PID が未設定です"})
+		return
+	}
+
+	if err := killProcessByPID(pid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"ok":      false,
+			"message": "KabuS の強制終了に失敗しました",
+			"error":   err.Error(),
+			"pid":     pid,
+		})
+		return
+	}
+
+	pidKabus = 0
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "KabuS を強制終了しました",
+		"pid":     pid,
+	})
+}
+
+// ----------------------------------------
+
+// handleKillAppGET は、TradeWebApp の強制終了を処理します。
+//
+// 機能:
+//   - グローバル変数 pidTradeApp を参照して TradeWebApp を強制終了します。
+//   - 終了成功時に pidTradeApp を 0 にします。
+//
+// 引数およびその型:
+//   - c (*gin.Context): Gin のコンテキストです。
+//
+// 返り値およびその型:
+//   - なし（HTTP レスポンスとして JSON を返します）
+func handleKillAppGET(c *gin.Context) {
+	pid := pidTradeApp
+	if pid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "message": "TradeWebApp の PID が未設定です"})
+		return
+	}
+
+	if err := killProcessByPID(pid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"ok":      false,
+			"message": "TradeWebApp の強制終了に失敗しました",
+			"error":   err.Error(),
+			"pid":     pid,
+		})
+		return
+	}
+
+	pidTradeApp = 0
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "TradeWebApp を強制終了しました",
+		"pid":     pid,
 	})
 }
 
@@ -448,6 +526,43 @@ func isProcessAliveByPID(pid int) bool {
 		return false
 	}
 	return strings.Contains(string(out), fmt.Sprintf(" %d ", pid))
+}
+
+// ----------------------------------------
+
+// killProcessByPID は、指定 PID のプロセスを強制終了します。
+//
+// 機能:
+//   - Windows の taskkill を用いて対象 PID を強制終了します。
+//   - 強制終了後に PID が消えているか確認します。
+//
+// 引数およびその型:
+//   - pid (int): 強制終了対象の PID です。
+//
+// 返り値およびその型:
+//   - (error): 強制終了に失敗した場合のエラーです。
+func killProcessByPID(pid int) error {
+	if pid <= 0 {
+		return errors.New("PID が不正です")
+	}
+
+	output, err := exec.Command("taskkill.exe", "/PID", strconv.Itoa(pid), "/T", "/F").CombinedOutput()
+	if err != nil {
+		if !isProcessAliveByPID(pid) {
+			return nil
+		}
+		text := strings.TrimSpace(string(output))
+		if text != "" {
+			return fmt.Errorf("taskkill の実行に失敗しました: %s", text)
+		}
+		return err
+	}
+
+	if isProcessAliveByPID(pid) {
+		return errors.New("プロセスの終了を確認できませんでした")
+	}
+
+	return nil
 }
 
 // ----------------------------------------

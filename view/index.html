@@ -55,6 +55,44 @@
                 </div>
             </div>
         </div>
+
+        <!--
+        [コンポーネント概要]
+        #force-kill-panel は強制終了パネルのルート要素です。
+        KabuS と TradeWebApp の終了操作ボタンと、PID 再取得ボタンをまとめて管理します。
+        API 呼び出し中は .is-loading を付与してボタンを無効化します。
+
+        #btn-killkabus は KabuS の強制終了をトリガーするボタンです。
+        クリック時に GET /killkabus を axios で呼び出します。
+
+        #btn-killtradeapp は TradeWebApp の強制終了をトリガーするボタンです。
+        クリック時に GET /killapp を axios で呼び出します。
+
+        #btn-reloadpid は PID の再取得をトリガーするボタンです。
+        クリック時に GET /pid を axios で呼び出します。
+        -->
+
+        <div id="force-kill-panel" class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-black/20">
+            <h2 class="text-sm font-semibold text-slate-100">強制終了パネル</h2>
+            <p class="mt-2 text-xs text-slate-300">PID が取得できた場合のみ操作を有効化します。</p>
+
+            <div class="mt-4 flex flex-col gap-3">
+                <button id="btn-killkabus" type="button"
+                    class="w-full rounded-lg bg-rose-600 px-4 py-3 text-left text-sm font-semibold text-white hover:bg-rose-500 focus:outline-none focus:ring-4 focus:ring-rose-500/30 disabled:cursor-not-allowed disabled:opacity-60">
+                    KabuS を強制終了
+                </button>
+
+                <button id="btn-killtradeapp" type="button"
+                    class="w-full rounded-lg bg-orange-600 px-4 py-3 text-left text-sm font-semibold text-white hover:bg-orange-500 focus:outline-none focus:ring-4 focus:ring-orange-500/30 disabled:cursor-not-allowed disabled:opacity-60">
+                    TradeWebApp を強制終了
+                </button>
+
+                <button id="btn-reloadpid" type="button"
+                    class="w-full rounded-lg bg-slate-700 px-4 py-3 text-left text-sm font-semibold text-white hover:bg-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-500/40 disabled:cursor-not-allowed disabled:opacity-60">
+                    PID を再取得
+                </button>
+            </div>
+        </div>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>

@@ -27,7 +27,7 @@ function initializeBootPanel() {
   bootAuthKabusButton.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await runAction({
+    await runActionAndReloadPID({
       panelElement: bootPanel,
       buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
       clickedButton: bootAuthKabusButton,
@@ -39,7 +39,7 @@ function initializeBootPanel() {
   apiAuthButton.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await runAction({
+    await runActionAndReloadPID({
       panelElement: bootPanel,
       buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
       clickedButton: apiAuthButton,
@@ -51,7 +51,7 @@ function initializeBootPanel() {
   bootAppButton.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await runAction({
+    await runActionAndReloadPID({
       panelElement: bootPanel,
       buttons: [bootAuthKabusButton, apiAuthButton, bootAppButton],
       clickedButton: bootAppButton,
@@ -59,6 +59,221 @@ function initializeBootPanel() {
       path: "/bootapp",
     });
   });
+}
+
+// ----------------------------------------
+
+/**
+ * 強制終了パネルの画面初期化を行う関数。
+ *
+ * PID 再取得ボタンのクリックイベントと、初回読込時の PID 取得処理を設定します。
+ * 取得結果に応じて KabuS と TradeWebApp の強制終了ボタンを有効化します。
+ *
+ * @function initializeForceKillPanel
+ * @param {void} - 引数はありません。
+ * @returns {void} 返り値はありません。
+ */
+function initializeForceKillPanel() {
+  const forceKillPanel = document.getElementById("force-kill-panel");
+  const killKabusButton = document.getElementById("btn-killkabus");
+  const killTradeAppButton = document.getElementById("btn-killtradeapp");
+  const reloadPidButton = document.getElementById("btn-reloadpid");
+
+  if (!forceKillPanel || !killKabusButton || !killTradeAppButton || !reloadPidButton) {
+    return;
+  }
+
+  if (forceKillPanel.dataset.initialized === "true") {
+    return;
+  }
+  forceKillPanel.dataset.initialized = "true";
+
+  updateKillButtonsState({
+    killKabusButton,
+    killTradeAppButton,
+    pidKabus: 0,
+    pidTradeApp: 0,
+  });
+
+  killKabusButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await runAction({
+      panelElement: forceKillPanel,
+      buttons: [killKabusButton, killTradeAppButton, reloadPidButton],
+      clickedButton: killKabusButton,
+      actionLabel: "KabuS 強制終了",
+      path: "/killkabus",
+    });
+  });
+
+  killTradeAppButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await runAction({
+      panelElement: forceKillPanel,
+      buttons: [killKabusButton, killTradeAppButton, reloadPidButton],
+      clickedButton: killTradeAppButton,
+      actionLabel: "TradeWebApp 強制終了",
+      path: "/killapp",
+    });
+  });
+
+  reloadPidButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await fetchPIDAndUpdateKillButtons({
+      panelElement: forceKillPanel,
+      killKabusButton,
+      killTradeAppButton,
+      reloadPidButton,
+    });
+  });
+
+  fetchPIDAndUpdateKillButtons({
+    panelElement: forceKillPanel,
+    killKabusButton,
+    killTradeAppButton,
+    reloadPidButton,
+  });
+}
+
+// ----------------------------------------
+
+/**
+ * 起動パネルの操作後に PID 再取得を行う関数。
+ *
+ * 起動系リクエストが完了した後、強制終了パネルの PID を再取得します。
+ *
+ * @function runActionAndReloadPID
+ * @param {Object} params - runAction に渡すパラメータ群です。
+ * @param {HTMLElement} params.panelElement - ローディング状態を付与する要素です。
+ * @param {HTMLButtonElement[]} params.buttons - 有効/無効を切り替えるボタン配列です。
+ * @param {HTMLButtonElement} params.clickedButton - 押下されたボタンです。
+ * @param {string} params.actionLabel - 画面表示用のアクション名です。
+ * @param {string} params.path - 呼び出す API パスです。
+ * @returns {Promise<void>} 返り値はありません。
+ */
+async function runActionAndReloadPID(params) {
+  await runAction(params);
+  await reloadPIDForForceKillPanel();
+}
+
+// ----------------------------------------
+
+/**
+ * 強制終了パネルの PID を再取得する関数。
+ *
+ * 対象要素が見つかった場合のみ fetchPIDAndUpdateKillButtons を実行します。
+ *
+ * @function reloadPIDForForceKillPanel
+ * @param {void} - 引数はありません。
+ * @returns {Promise<void>} 返り値はありません。
+ */
+async function reloadPIDForForceKillPanel() {
+  const forceKillPanel = document.getElementById("force-kill-panel");
+  const killKabusButton = document.getElementById("btn-killkabus");
+  const killTradeAppButton = document.getElementById("btn-killtradeapp");
+  const reloadPidButton = document.getElementById("btn-reloadpid");
+
+  if (!forceKillPanel || !killKabusButton || !killTradeAppButton || !reloadPidButton) {
+    return;
+  }
+
+  await fetchPIDAndUpdateKillButtons({
+    panelElement: forceKillPanel,
+    killKabusButton,
+    killTradeAppButton,
+    reloadPidButton,
+  });
+}
+
+// ----------------------------------------
+
+/**
+ * PID を取得し、強制終了ボタンの状態を更新する関数。
+ *
+ * /pid を axios で呼び出し、取得した PID に応じてボタンを有効化します。
+ * 通信失敗時はボタンを無効化したままにします。
+ *
+ * @function fetchPIDAndUpdateKillButtons
+ * @param {Object} params - 実行に必要なパラメータ群です。
+ * @param {HTMLElement} params.panelElement - ローディング状態を付与する要素です。
+ * @param {HTMLButtonElement} params.killKabusButton - KabuS 強制終了ボタンです。
+ * @param {HTMLButtonElement} params.killTradeAppButton - TradeWebApp 強制終了ボタンです。
+ * @param {HTMLButtonElement} params.reloadPidButton - PID 再取得ボタンです。
+ * @returns {Promise<void>} 返り値はありません。
+ */
+async function fetchPIDAndUpdateKillButtons({
+  panelElement,
+  killKabusButton,
+  killTradeAppButton,
+  reloadPidButton,
+}) {
+  if (panelElement.classList.contains("is-loading")) {
+    return;
+  }
+
+  const originalText = beginButtonLoading(reloadPidButton);
+  setLoadingState(panelElement, [killKabusButton, killTradeAppButton, reloadPidButton], true);
+
+  let pidKabusValue = 0;
+  let pidTradeAppValue = 0;
+
+  try {
+    const response = await axios.get("/pid", { timeout: 120000 });
+    const data = response?.data ?? {};
+    const rawKabus = Number(data.pidKabus);
+    const rawTradeApp = Number(data.pidTradeApp);
+
+    if (data.ok && Number.isFinite(rawKabus) && rawKabus > 0) {
+      pidKabusValue = rawKabus;
+    }
+    if (data.ok && Number.isFinite(rawTradeApp) && rawTradeApp > 0) {
+      pidTradeAppValue = rawTradeApp;
+    }
+  } catch (error) {
+    const detail = normalizeAxiosError(error);
+    const message = detail.data?.message || detail.data?.error || detail.message || "PID の取得に失敗しました。";
+
+    iziToast.error({
+      title: "通信エラー",
+      message,
+      position: "topRight",
+    });
+  } finally {
+    setLoadingState(panelElement, [killKabusButton, killTradeAppButton, reloadPidButton], false);
+    endButtonLoading(reloadPidButton, originalText);
+    updateKillButtonsState({
+      killKabusButton,
+      killTradeAppButton,
+      pidKabus: pidKabusValue,
+      pidTradeApp: pidTradeAppValue,
+    });
+  }
+}
+
+// ----------------------------------------
+
+/**
+ * PID の値に応じて強制終了ボタンを有効化する関数。
+ *
+ * 0 以上の PID が存在する場合のみ、対応するボタンを有効化します。
+ *
+ * @function updateKillButtonsState
+ * @param {Object} params - 更新に必要なパラメータ群です。
+ * @param {HTMLButtonElement} params.killKabusButton - KabuS 強制終了ボタンです。
+ * @param {HTMLButtonElement} params.killTradeAppButton - TradeWebApp 強制終了ボタンです。
+ * @param {number} params.pidKabus - KabuS の PID です。
+ * @param {number} params.pidTradeApp - TradeWebApp の PID です。
+ * @returns {void} 返り値はありません。
+ */
+function updateKillButtonsState({ killKabusButton, killTradeAppButton, pidKabus, pidTradeApp }) {
+  const isKabusEnabled = Number.isFinite(pidKabus) && pidKabus > 0;
+  const isTradeAppEnabled = Number.isFinite(pidTradeApp) && pidTradeApp > 0;
+
+  killKabusButton.disabled = !isKabusEnabled;
+  killTradeAppButton.disabled = !isTradeAppEnabled;
 }
 
 // ----------------------------------------
@@ -253,8 +468,10 @@ function normalizeAxiosError(error) {
 
 document.addEventListener("DOMContentLoaded", () => {
   initializeBootPanel();
+  initializeForceKillPanel();
 });
 
 if (document.readyState !== "loading") {
   initializeBootPanel();
+  initializeForceKillPanel();
 }
