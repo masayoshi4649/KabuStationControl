@@ -51,6 +51,7 @@ func main() {
 	rt.GET("/bootauthkabus", handleBootAuthKabusGET)
 	rt.GET("/apiauth", handleAPIAuthGET)
 	rt.GET("/bootapp", handleBootAppGET)
+	rt.GET("/pid", handlePIDGET)
 
 	if err := rt.Run(httpListenAddr); err != nil {
 		os.Exit(1)
@@ -61,6 +62,26 @@ func main() {
 
 func handleIndexGET(c *gin.Context) {
 	c.HTML(http.StatusOK, "index.html", gin.H{})
+}
+
+// ----------------------------------------
+
+// handlePIDGET は、pidKabus と pidTradeApp の値を返します。
+//
+// 機能:
+//   - pidKabus と pidTradeApp の現在値を JSON で返します。
+//
+// 引数およびその型:
+//   - c (*gin.Context): Gin のコンテキストです。
+//
+// 返り値およびその型:
+//   - なし（HTTP レスポンスとして JSON を返します）
+func handlePIDGET(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"ok":          true,
+		"pidKabus":    pidKabus,
+		"pidTradeApp": pidTradeApp,
+	})
 }
 
 // ----------------------------------------
