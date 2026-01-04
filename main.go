@@ -21,6 +21,11 @@ import (
 
 const httpListenAddr = ":3000"
 
+var (
+	pidKabus    int = 0
+	pidTradeApp int = 0
+)
+
 var cfg Config
 
 var apiKey string
@@ -111,6 +116,8 @@ func handleBootAuthKabusGET(c *gin.Context) {
 	if started {
 		time.Sleep(10 * time.Second)
 	}
+
+	pidKabus = pid
 
 	runErr := runPowerShellFile(
 		filepath.Join("cmd", "Click-KabuStationLogin.ps1"),
@@ -203,6 +210,7 @@ func handleBootAppGET(c *gin.Context) {
 
 	pid := cmd.Process.Pid
 	_ = cmd.Process.Release()
+	pidTradeApp = pid
 
 	time.Sleep(500 * time.Millisecond)
 	if !isProcessAliveByPID(pid) {
