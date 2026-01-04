@@ -98,7 +98,7 @@ function initializeForceKillPanel() {
   killKabusButton.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await runAction({
+    await runActionAndReloadPID({
       panelElement: forceKillPanel,
       buttons: [killKabusButton, killTradeAppButton, reloadPidButton],
       clickedButton: killKabusButton,
@@ -110,7 +110,7 @@ function initializeForceKillPanel() {
   killTradeAppButton.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    await runAction({
+    await runActionAndReloadPID({
       panelElement: forceKillPanel,
       buttons: [killKabusButton, killTradeAppButton, reloadPidButton],
       clickedButton: killTradeAppButton,
